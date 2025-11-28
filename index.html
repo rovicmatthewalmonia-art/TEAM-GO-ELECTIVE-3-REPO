@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IT414 RFID Monitor</title>
+    
+    <!-- DaisyUI + Tailwind CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/daisyui@4.4.19/dist/full.min.css" rel="stylesheet" type="text/css" />
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Alpine.js -->
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.13.3/dist/cdn.min.js"></script>
+    
+    <style>
+        [x-cloak] { display: none !important; }
+        body { font-family: 'Inter', system-ui, -apple-system, sans-serif; }
+        .status-badge { transition: all 0.3s ease; }
+        .log-entry { animation: slideIn 0.3s ease-out; }
+        @keyframes slideIn {
+            from { opacity: 0; transform: translateY(-10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .connection-status {
+            position: fixed;
+            top: 80px;
+            right: 20px;
+            z-index: 1000;
+        }
+    </style>
+</head>
+<body class="bg-base-200 min-h-screen">
+    <div x-data="rfidApp()" x-init="init()" x-cloak>
+        <!-- Connection Status Alert -->
+        <div class="connection-status" x-show="showError" x-transition>
+            <div class="alert alert-error shadow-lg max-w-md">
+                <svg xmlns="http://www.w3.org/2000/svg" class="stroke-current shrink-0 h-6 w-6" fill="none" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <div>
+                    <h3 class="font-bold">Connection Error</h3>
+                    <div class="text-xs" x-text="errorMessage"></div>
+                </div>
+                <button class="btn btn-sm" @click="showError = false">Close</button>
+            </div>
+        </div>
+
+        <!-- Header -->
+        <div class="navbar bg-primary text-primary-content shadow-lg">
+            <div class="flex-1">
+                <h1 class="text-2xl font-bold px-4">🔐 IT414 RFID Monitor</h1>
+            </div>
+            <div class="flex-none gap-2">
+                <div class="badge badge-success gap-2" x-show="!showError">
+                    <span class="loading loading-ring loading-xs" x-show="isLoading"></span>
+                    <span x-text="isLoading ? 'Updating...' : 'Live'"></span>
+                </div>
+                <div class="badge badge-error gap-2" x-show="showError">
+                    <span>⚠️ Disconnected</span>
+                </div>
+                <button class="btn btn-sm btn-ghost" @click="fetchData()" :disabled="isLoading">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg>
+                    Refresh
+                </button>
+            </div>
+        </div>
+
+        <!-- Main Container -->
+        <div class="container mx-auto p-4 max-w-7xl">
+            
+            <!-- Stats Overview -->
+            <div class="stats shadow w-full mb-6 bg-base-100">
+                <div class="stat">
+                    <div class="stat-title">Total Registered</div>
+                    <div class="stat-value text-primary" x-text="registeredRFIDs.length"></div>
+                    <div class="stat-desc">RFID Cards</div>
+                </div>
+                
+                <div class="stat">
+                    <div class="stat-title">Active (Status: 1)</div>
+                    <div class="stat-value text-success" x-text="activeCount"></div>
+                    <div class="stat-desc">Currently Active</div>
+                </div>
+                
+                <div class="stat">
+                    <div class="stat-title">Recent Logs</div>
+                    <div class="stat-value text-info" x-text="logs.length"></div>
+                    <div class="stat-desc">Total Activities</div>
+                </div>
+            </div>
+
+            <!-- Two Column Layout -->
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                
+                <!-- Registered RFIDs Panel -->
+                <div class="card bg-base-100 shadow-xl">
+                    <div class="card-body">
+                        <h2 class="card-title text-2xl mb-4">
+                            📋 Registered RFIDs
+                        </h2>
+                        
+                        <div class="overflow-x-auto">
+                            <table class="table table-zebra w-full">
+                                <thead>
+                                    <tr>
+                                        <th>RFID ID</th>
+                                        <th>Status</th>
+                                        <th>Control</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <template x-if="registeredRFIDs.length === 0">
+                                        <tr>
+                                            <td colspan="3" class="text-center py-8">
+                                                <div class="text-base-content/50">
+                                                    <span x-show="!isLoading">No registered RFIDs found</span>
+                                                    <span x-show="isLoading" class="loading loading-spinner loading-md"></span>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    </template>
+                                    
+                                    <template x-for="rfid in registeredRFIDs" :key="rfid.id">
+                                        <tr>
+                                            <td>
+                                                <code class="text-sm font-mono" x-text="rfid.rfid_data"></code>
+                                            </td>
+                                            <td>
+                                                <div class="badge status-badge"
+                                                     :class="rfid.rfid_status == 1 ? 'badge-success' : 'badge-error'">
+                                                    <span x-text="rfid.rfid_status == 1 ? 'Active' : 'Inactive'"></span>
+                                                </div>
+                                            </td>
+                                            <td>
+                                                <input type="checkbox" 
+                                                       class="toggle toggle-success"
+                                                       :checked="rfid.rfid_status == 1"
+                                                       @change="toggleStatus(rfid.rfid_data, rfid.rfid_status)"
+                                                       :disabled="isLoading">
+                                            </td>
+                                        </tr>
+                                    </template>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Activity Logs Panel -->
+                <div class="card bg-base-100 shadow-xl">
+                    <div class="card-body">
+                        <h2 class="card-title text-2xl mb-4">
+                            📊 Activity Logs
+                        </h2>
+                        
+                        <div class="overflow-y-auto max-h-96">
+                            <template x-if="logs.length === 0">
+                                <div class="text-center py-8 text-base-content/50">
+                                    <span x-show="!isLoading">No activity logs yet</span>
+                                    <span x-show="isLoading" class="loading loading-spinner loading-md"></span>
+                                </div>
+                            </template>
+                            
+                            <div class="space-y-2">
+                                <template x-for="log in logs" :key="log.id">
+                                    <div class="log-entry alert shadow-md"
+                                         :class="log.rfid_status == 1 ? 'alert-success' : 'alert-error'">
+                                        <div class="flex flex-col w-full">
+                                            <div class="flex justify-between items-start">
+                                                <div>
+                                                    <div class="font-bold">
+                                                        RFID: <code class="text-sm" x-text="log.rfid_data"></code>
+                                                    </div>
+                                                    <div class="text-sm opacity-80" x-text="formatDateTime(log.time_log)"></div>
+                                                </div>
+                                                <div class="badge badge-lg"
+                                                     :class="log.rfid_status == 1 ? 'badge-success' : 'badge-error'">
+                                                    <span x-text="log.rfid_status == 1 ? 'LOGIN (1)' : 'LOGOUT (0)'"></span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </template>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Footer Info -->
+            <div class="text-center mt-8 text-base-content/60">
+                <p>Last updated: <span x-text="lastUpdate"></span></p>
+                <p class="text-sm mt-2">Framework: Alpine.js + DaisyUI | Auto-refresh every 2s</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function rfidApp() {
+            return {
+                registeredRFIDs: [],
+                logs: [],
+                isLoading: false,
+                showError: false,
+                errorMessage: '',
+                lastUpdate: 'Never',
+                refreshInterval: null,
+
+                init() {
+                    console.log('🚀 RFID Monitor initialized');
+                    this.fetchData();
+                    // Auto-refresh every 2 seconds
+                    this.refreshInterval = setInterval(() => {
+                        this.fetchData();
+                    }, 2000);
+                },
+
+                async fetchData() {
+                    try {
+                        this.isLoading = true;
+                        this.showError = false;
+                        
+                        // Fetch registered RFIDs from get_rfids.php
+                        const rfidResponse = await fetch('get_rfids.php', {
+                            method: 'GET',
+                            headers: {
+                                'Content-Type': 'application/json'
+                            }
+                        });
+                        
+                        if (!rfidResponse.ok) {
+                            throw new Error(`HTTP error! status: ${rfidResponse.status}`);
+                        }
+                        
+                        const rfidData = await rfidResponse.json();
+                        
+                        if (rfidData.success) {
+                            this.registeredRFIDs = rfidData.data;
+                            console.log('✅ Fetched RFIDs:', this.registeredRFIDs.length);
+                        } else {
+                            throw new Error(rfidData.error || 'Failed to fetch RFIDs');
+                        }
+                        
+                        // Fetch logs from get_logs.php
+                        const logsResponse = await fetch('get_logs.php', {
+                            method: 'GET',
+                            headers: {
+                                'Content-Type': 'application/json'
+                            }
+                        });
+                        
+                        if (!logsResponse.ok) {
+                            throw new Error(`HTTP error! status: ${logsResponse.status}`);
+                        }
+                        
+                        const logsData = await logsResponse.json();
+                        
+                        if (logsData.success) {
+                            this.logs = logsData.data;
+                            console.log('✅ Fetched Logs:', this.logs.length);
+                        } else {
+                            throw new Error(logsData.error || 'Failed to fetch logs');
+                        }
+                        
+                        this.lastUpdate = new Date().toLocaleString();
+                        
+                    } catch (error) {
+                        console.error('❌ Error fetching data:', error);
+                        this.showError = true;
+                        this.errorMessage = error.message;
+                    } finally {
+                        this.isLoading = false;
+                    }
+                },
+
+                async toggleStatus(rfidData, currentStatus) {
+                    try {
+                        this.isLoading = true;
+                        const newStatus = currentStatus == 1 ? 0 : 1;
+                        
+                        console.log(`🔄 Toggling ${rfidData}: ${currentStatus} → ${newStatus}`);
+                        
+                        const response = await fetch('update_status.php', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                            },
+                            body: JSON.stringify({
+                                rfid_data: rfidData,
+                                new_status: newStatus
+                            })
+                        });
+                        
+                        if (!response.ok) {
+                            throw new Error(`HTTP error! status: ${response.status}`);
+                        }
+                        
+                        const result = await response.json();
+                        
+                        if (result.success) {
+                            console.log('✅ Status updated successfully');
+                            // Immediately refresh data to show the change
+                            await this.fetchData();
+                        } else {
+                            throw new Error(result.error || 'Failed to update status');
+                        }
+                        
+                    } catch (error) {
+                        console.error('❌ Error updating status:', error);
+                        this.showError = true;
+                        this.errorMessage = error.message;
+                    } finally {
+                        this.isLoading = false;
+                    }
+                },
+
+                formatDateTime(datetime) {
+                    const date = new Date(datetime);
+                    return date.toLocaleString('en-US', {
+                        month: 'short',
+                        day: 'numeric',
+                        year: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        second: '2-digit'
+                    });
+                },
+
+                get activeCount() {
+                    return this.registeredRFIDs.filter(rfid => rfid.rfid_status == 1).length;
+                }
+            }
+        }
+    </script>
+</body>
+</html>

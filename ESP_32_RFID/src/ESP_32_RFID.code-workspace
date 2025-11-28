@@ -1,0 +1,20 @@
+{
+	"folders": [
+		{
+			"path": ".."
+		},
+		{
+			"name": "2nd_esp32",
+			"path": "../../2nd_esp32"
+		},
+		{
+			"name": "sms module",
+			"path": "../../sms module"
+		},
+		{
+			"name": "sms module test",
+			"path": "../../sms module test"
+		}
+	],
+	"settings": {}
+}
